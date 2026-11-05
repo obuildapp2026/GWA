@@ -348,7 +348,6 @@
             <div class="options" id="q0">
               <button type="button" class="opt" data-v="maak" data-fit="100">Maakbedrijf of productiebedrijf</button>
               <button type="button" class="opt" data-v="handel" data-fit="55">Handel, groothandel of technische dienstverlening</button>
-              <button type="button" class="opt" data-v="publiek" data-fit="70">Overheid of publieke organisatie</button>
             </div>
           </div>
 
@@ -826,6 +825,7 @@
             <div class="field"><label for="f-fn">Functie</label><input id="f-fn" type="text" autocomplete="organization-title" placeholder="Directeur"></div>
             <div class="field full"><label for="f-em">Zakelijk e-mailadres</label><input id="f-em" type="email" autocomplete="email" placeholder="jan@bedrijf.nl"></div>
             <div class="field full"><label for="f-tel">Telefoon (optioneel)</label><input id="f-tel" type="tel" autocomplete="tel" placeholder="06 12 34 56 78"></div>
+            <div class="field full"><label for="f-tar">Uurtarief in euro's (optioneel)</label><input id="f-tar" type="number" min="0" step="1" inputmode="numeric" placeholder="bijv. 75"><span style="font-size:13px;color:var(--ink-3)">Vul uw volledig belaste kosten per uur in en wij rekenen de uitkomst in euro's uit. Zonder tarief zien we alleen uren en FTE.</span></div>
           </div>
 
           <input class="hp" id="f-hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -917,11 +917,11 @@
 const SCAN_CONFIG = {
   endpoint: 'https://formspree.io/f/mvkoovev',   // later: uw n8n Production Webhook URL
   mode: 'formspree',                             // later: 'n8n'
-  uurtarief: 75,                                 // volledig belaste kosten per calculatie-uur
+  uurtarief: null,                               // niet meer standaard; komt van de bezoeker (optioneel)
   besparingsfactor: 0.30,                        // bewust conservatief
   voorraadkostenpct: 0.20,                       // rente, ruimte, risico en incourant per jaar
   urenPerFte: 1600,
-  uurtariefPubliek: 80,                          // volledig belaste kosten bij de overheid
+  uurtariefPubliek: null,                        // niet meer standaard; komt van de bezoeker (optioneel)
   urenPerFtePubliek: 1400
 };
 const ENDPOINT_OK = !!SCAN_CONFIG.endpoint && SCAN_CONFIG.endpoint.indexOf('VUL_HIER') === -1;
@@ -1132,10 +1132,12 @@ const W = {
   pRechtmatig:    { p11:0.45, p7:0.35, p3:0.20 },
   pTotaal:        { snelheid:0.30, grip:0.40, rechtmatigheid:0.30 }
 };
+function readTarief(){ const v = parseFloat((document.getElementById('f-tar')||{}).value); return (v > 0) ? v : null; }
 function pillar(weights){
   let sum = 0, wsum = 0;
   for(const q in weights){
     const a = A[q];
+    if(q === 'q7' && a && a.v === 'onbekend') continue;   // hitrate niet meetellen: wel gemarkeerd
     if(a && a.s !== null){ sum += a.s * weights[q]; wsum += weights[q]; }
   }
   return wsum ? Math.round(sum / wsum) : 0;
@@ -1289,7 +1291,8 @@ function economics(){
     const trajecten = A.p4 ? A.p4.n : 0;
     const urenPer   = A.p5 ? A.p5.n : 0;
     const urenJaar  = trajecten * urenPer;
-    const kosten    = urenJaar * SCAN_CONFIG.uurtariefPubliek;
+    const tPub      = readTarief();
+    const kosten    = tPub ? urenJaar * tPub : null;
     const volume    = (A.p12 && A.p12.n) ? A.p12.n : null;
     const mav       = (A.p7 && A.p7.m !== null && A.p7.m !== undefined) ? A.p7.m : null;
     return {
@@ -1297,8 +1300,8 @@ function economics(){
       urenPer: urenPer,
       urenJaar: Math.round(urenJaar),
       fte: Math.round(urenJaar / SCAN_CONFIG.urenPerFtePubliek * 10) / 10,
-      kosten: Math.round(kosten),
-      besparing: Math.round(kosten * SCAN_CONFIG.besparingsfactor),
+      kosten: kosten !== null ? Math.round(kosten) : null,
+      besparing: kosten !== null ? Math.round(kosten * SCAN_CONFIG.besparingsfactor) : null,
       inkoopvolume: volume,
       maverick: mav,
       buitenContract: (volume && mav !== null) ? Math.round(volume * mav) : null
@@ -1307,7 +1310,8 @@ function economics(){
   const perMaand = A.q4 ? A.q4.n : 0;
   const urenPer  = A.q5 ? A.q5.n : 0;
   const urenJaar = perMaand * urenPer * 12;
-  const kosten   = urenJaar * SCAN_CONFIG.uurtarief;
+  const tarief   = readTarief();
+  const kosten   = tarief ? urenJaar * tarief : null;
   const hitrate  = A.q7 ? A.q7.h : null;
   const vwaarde  = (A.q16 && A.q16.n) ? A.q16.n : null;
   return {
@@ -1318,8 +1322,8 @@ function economics(){
     hitrate: hitrate,
     urenJaar: Math.round(urenJaar),
     fte: Math.round(urenJaar / SCAN_CONFIG.urenPerFte * 10) / 10,
-    kosten: Math.round(kosten),
-    besparing: Math.round(kosten * SCAN_CONFIG.besparingsfactor),
+    kosten: kosten !== null ? Math.round(kosten) : null,
+    besparing: kosten !== null ? Math.round(kosten * SCAN_CONFIG.besparingsfactor) : null,
     verlorenUren: (hitrate !== null && hitrate !== undefined)
       ? Math.round(urenJaar * (1 - hitrate)) : null
   };
@@ -1435,7 +1439,6 @@ function payload(sc, ec, contact){
            omvang: ROUTE === 'publiek' ? (A.p2 ? A.p2.fit : null) : (A.q2 ? A.q2.fit : null),
            gemiddeld: fit },
     antwoorden: antwoorden,
-    meting: meting(),
     bron: location.href
   };
   if(SCAN_CONFIG.mode === 'formspree'){
@@ -1456,12 +1459,7 @@ function payload(sc, ec, contact){
       erp: antwoorden.q8 ? antwoorden.q8.label : (A.p8 ? A.p8.label : ''),
       calculatie: A.q9 ? A.q9.label : (A.p9 ? A.p9.label : ''),
       prioriteit: A.q12 ? A.q12.label : '',
-      doorlooptijd: (base.meting.secondenTotaal >= 60
-          ? Math.floor(base.meting.secondenTotaal / 60) + ' min ' + (base.meting.secondenTotaal % 60) + ' s'
-          : base.meting.secondenTotaal + ' s') +
-        ' (deel 1–4: ' + base.meting.secondenPerDeel[1] + 's / ' + base.meting.secondenPerDeel[2] +
-        's / ' + base.meting.secondenPerDeel[3] + 's / ' + base.meting.secondenPerDeel[4] + 's, ' +
-        base.meting.keerTerug + 'x terug)',
+      uurtarief: readTarief() ? String(readTarief()) : '',
       samenvatting: 'Score ' + sc.totaal + '/100 | snelheid ' + sc.snelheid +
         (ROUTE === 'publiek'
           ? ' | grip ' + sc.grip + ' | rechtmatigheid ' + sc.rechtmatigheid
@@ -1555,16 +1553,17 @@ function render(sc, ec, status){
       '<div><dt>Inkooptrajecten per jaar</dt><dd>' + num(ec.trajecten) + '</dd></div>' +
       '<div><dt>Uren per jaar aan inkoopwerk</dt><dd>' + num(ec.urenJaar) + ' uur</dd></div>' +
       '<div><dt>Dat is een capaciteit van</dt><dd>' + String(ec.fte).replace('.', ',') + ' FTE</dd></div>' +
-      '<div><dt>Kosten van die uren</dt><dd>' + eur(ec.kosten) + ' per jaar</dd></div>' +
-      '<div><dt>Bij 30% minder proceslast</dt><dd class="good">' + eur(ec.besparing) + ' per jaar</dd></div>';
+      (ec.kosten !== null ? '<div><dt>Kosten van die uren</dt><dd>' + eur(ec.kosten) + ' per jaar</dd></div>' : '') +
+      (ec.kosten !== null ? '<div><dt>Bij 30% minder proceslast</dt><dd class="good">' + eur(ec.besparing) + ' per jaar</dd></div>' : '');
     if(ec.buitenContract){
       rijen += '<div><dt>Uitgaven buiten contract</dt><dd>' + eur(ec.buitenContract) + ' per jaar</dd></div>';
     }
     document.getElementById('rMoney').innerHTML =
       '<h3>Wat uw inkoopproces per jaar kost</h3><dl>' + rijen + '</dl>' +
       '<p class="note">Gerekend met uw eigen opgave van ' + num(ec.trajecten) + ' trajecten per jaar en gemiddeld ' +
-        num(ec.urenPer) + ' uur per traject, tegen ' + eur(SCAN_CONFIG.uurtariefPubliek) +
-        ' volledig belaste kosten per uur en ' + num(SCAN_CONFIG.urenPerFtePubliek) + ' netto uren per FTE. ' +
+        num(ec.urenPer) + ' uur per traject' +
+        (ec.kosten !== null ? ', tegen ' + eur(readTarief()) + ' volledig belaste kosten per uur' : '') +
+        ' en ' + num(SCAN_CONFIG.urenPerFtePubliek) + ' netto uren per FTE. ' +
         (ec.buitenContract
           ? 'Het bedrag buiten contract volgt uit uw opgegeven inkoopvolume maal het percentage dat u zelf noemde. '
           : '') +
@@ -1577,12 +1576,12 @@ function render(sc, ec, status){
       '<div><dt>Offertes per jaar</dt><dd>' + num(Math.round(ec.perMaand * 12)) + '</dd></div>' +
       '<div><dt>Calculatie-uren per jaar</dt><dd>' + num(ec.urenJaar) + ' uur</dd></div>' +
       '<div><dt>Dat is een capaciteit van</dt><dd>' + String(ec.fte).replace('.', ',') + ' FTE</dd></div>' +
-      '<div><dt>Kosten van die uren</dt><dd>' + eur(ec.kosten) + ' per jaar</dd></div>' +
-      '<div><dt>Bij 30% minder calculatietijd</dt><dd class="good">' + eur(ec.besparing) + ' per jaar</dd></div>' +
+      (ec.kosten !== null ? '<div><dt>Kosten van die uren</dt><dd>' + eur(ec.kosten) + ' per jaar</dd></div>' : '') +
+      (ec.kosten !== null ? '<div><dt>Bij 30% minder calculatietijd</dt><dd class="good">' + eur(ec.besparing) + ' per jaar</dd></div>' : '') +
     '</dl>' +
     '<p class="note">Gerekend met uw eigen opgave van ' + ec.perMaand + ' offertes per maand en gemiddeld ' +
-      String(ec.urenPer).replace('.', ',') + ' uur per offerte, tegen ' + eur(SCAN_CONFIG.uurtarief) +
-      ' volledig belaste kosten per uur. Wijkt uw tarief af, dan schuift de uitkomst evenredig mee. ' +
+      String(ec.urenPer).replace('.', ',') + ' uur per offerte' +
+      (ec.kosten !== null ? ', tegen ' + eur(readTarief()) + ' volledig belaste kosten per uur. Wijkt uw tarief af, dan schuift de uitkomst evenredig mee. ' : '. Zonder ingevuld uurtarief tonen we alleen uren en FTE. ') +
       'Herkent u dit getal niet in uw eigen cijfers? Dan is dat op zich al een signaal: de meeste ' +
       'maakbedrijven boeken calculatietijd nergens apart weg.</p>';
   }
